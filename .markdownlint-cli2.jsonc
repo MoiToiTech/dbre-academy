@@ -5,7 +5,9 @@
     "MD033": { "allowed_elements": ["details", "summary", "picture", "source", "img", "br", "a", "p", "kbd", "sub"] },
     "MD024": { "siblings_only": true },
     "MD041": false,          // README starts with the logo
-    "MD060": false
+    "MD060": false,
+    "MD010": { "code_blocks": false },   // mysql batch output is tab-separated
+    "MD028": false            // consecutive quoted messages in incident briefs
   },
   "ignores": ["node_modules", "LICENSE*"]
 }
