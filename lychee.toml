@@ -6,7 +6,14 @@ accept = ["200..=299", "429"]
 exclude = [
   "^http://127\\.0\\.0\\.1",
   "^http://localhost",
-  "^https://github\\.com/MoiToiTech/dbre-academy/(issues|pulls|compare|fork)",
+  # This repository: 404 until merged. Relative links are still checked.
+  "^https://github\\.com/MoiToiTech/dbre-academy",
   "^https://www\\.linkedin\\.com",
+  # dev.mysql.com rejects link-checker clients with 403 and answers missing
+  # pages with 200; labs/tests/check-manual-links.py checks those instead.
+  "^https://dev\\.mysql\\.com/doc/",
+  # Sites that block automated clients (checked by hand 2026-10-13).
+  "^https://www\\.oreilly\\.com",
+  "^https://education\\.oracle\\.com",
 ]
 exclude_path = ["labs/tests"]
