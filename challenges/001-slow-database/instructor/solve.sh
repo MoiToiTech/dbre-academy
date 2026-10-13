@@ -18,9 +18,8 @@ id=$(q --skip-column-names -e "
     FROM information_schema.innodb_trx t
     JOIN information_schema.processlist p ON p.id = t.trx_mysql_thread_id
    WHERE p.command = 'Sleep' AND t.trx_rows_modified = 0
-     AND t.trx_started < NOW() - INTERVAL 10 SECOND
    ORDER BY t.trx_started LIMIT 1")
-[ -n "$id" ] || { echo "No idle, read-only long transaction found."; exit 1; }
+[ -n "$id" ] || { echo "No idle transaction that modified nothing was found."; exit 1; }
 
 echo "Ending connection $id (idle, modified nothing: rollback is instant)."
 q -e "KILL $id"
