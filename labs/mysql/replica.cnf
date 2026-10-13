@@ -1,0 +1,37 @@
+# Replica. Same shape as the primary, plus read-only protection.
+[mysqld]
+server_id                       = 2
+report_host                     = replica
+
+log_bin                         = binlog
+binlog_format                   = ROW
+binlog_expire_logs_seconds      = 604800
+gtid_mode                       = ON
+enforce_gtid_consistency        = ON
+log_replica_updates             = ON
+relay_log                       = relay
+relay_log_recovery              = ON
+# Replication is configured by ./lab after start-up, so the replica does not
+# try to connect before the primary has its replication user.
+skip_replica_start              = ON
+replica_parallel_workers        = 4
+replica_preserve_commit_order   = ON
+
+# read_only and super_read_only are NOT set here: the image's entrypoint
+# creates the root account on a temporary server that reads this file, and
+# super_read_only would make that fail. ./lab sets both with SET PERSIST
+# once the replica is initialised (see mysqld-auto.cnf in the data dir).
+
+innodb_buffer_pool_size         = 256M
+innodb_redo_log_capacity        = 256M
+innodb_flush_log_at_trx_commit  = 1
+
+slow_query_log                  = ON
+slow_query_log_file             = /var/lib/mysql/slow.log
+long_query_time                 = 1
+log_error_verbosity             = 3
+performance_schema              = ON
+
+max_connections                 = 200
+skip_name_resolve               = ON
+local_infile                    = OFF

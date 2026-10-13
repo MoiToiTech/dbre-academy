@@ -1,0 +1,5 @@
+# Local lab artefacts
+labs/.env
+*.log
+.DS_Store
+__pycache__/

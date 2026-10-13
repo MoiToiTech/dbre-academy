@@ -1,0 +1,45 @@
+# Starting-point alert rules for the lab. Thresholds are tuned to make the
+# lab's fault scenarios visible within a minute, not for production.
+#
+# Metric names: mysqld_exporter names replication metrics after the columns
+# of SHOW REPLICA STATUS. On MySQL 8.4 that gives ..._seconds_behind_source
+# and ..._replica_io_running, not the ..._master / slave_io names that many
+# published rule sets still use. A rule on a name that does not exist never
+# fires — check the names against /metrics after every upgrade.
+groups:
+  - name: mysql
+    rules:
+      - alert: MySQLDown
+        expr: mysql_up == 0
+        for: 15s
+        labels: { severity: page }
+        annotations:
+          summary: "mysqld_exporter cannot reach MySQL on {{ $labels.instance }}"
+
+      - alert: MySQLReplicationStopped
+        expr: mysql_slave_status_replica_io_running == 0 or mysql_slave_status_replica_sql_running == 0
+        for: 15s
+        labels: { severity: page }
+        annotations:
+          summary: "A replication thread is stopped on {{ $labels.instance }}"
+
+      - alert: MySQLReplicationLag
+        expr: mysql_slave_status_seconds_behind_source > 30
+        for: 30s
+        labels: { severity: warn }
+        annotations:
+          summary: "{{ $labels.instance }} is {{ $value }}s behind its source"
+
+      - alert: MySQLConnectionsNearLimit
+        expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections > 0.8
+        for: 30s
+        labels: { severity: warn }
+        annotations:
+          summary: "{{ $labels.instance }} uses over 80% of max_connections"
+
+      - alert: MySQLRowLockWaits
+        expr: rate(mysql_global_status_innodb_row_lock_waits[1m]) > 1
+        for: 30s
+        labels: { severity: warn }
+        annotations:
+          summary: "Sustained InnoDB row-lock waits on {{ $labels.instance }}"

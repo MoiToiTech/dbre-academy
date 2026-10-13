@@ -1,0 +1,33 @@
+# Primary. Sized for a laptop, not for production: the buffer pool is
+# deliberately small so that the lab dataset does not fit comfortably and
+# I/O effects stay visible.
+[mysqld]
+server_id                       = 1
+report_host                     = primary
+
+# Binary log and GTIDs — required for replication and point-in-time recovery.
+log_bin                         = binlog
+binlog_format                   = ROW
+binlog_expire_logs_seconds      = 604800
+gtid_mode                       = ON
+enforce_gtid_consistency        = ON
+sync_binlog                     = 1
+
+# InnoDB
+innodb_buffer_pool_size         = 256M
+innodb_redo_log_capacity        = 256M
+innodb_flush_log_at_trx_commit  = 1
+innodb_lock_wait_timeout        = 20
+innodb_print_all_deadlocks      = ON
+
+# Diagnostics. The slow log is on from the start; long_query_time is
+# changed per exercise.
+slow_query_log                  = ON
+slow_query_log_file             = /var/lib/mysql/slow.log
+long_query_time                 = 1
+log_error_verbosity             = 3
+performance_schema              = ON
+
+max_connections                 = 200
+skip_name_resolve               = ON
+local_infile                    = OFF

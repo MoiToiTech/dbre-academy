@@ -1,0 +1,14 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - /etc/prometheus/dbre/alerts.yml
+
+scrape_configs:
+  - job_name: mysql
+    static_configs:
+      - targets: ["exporter-primary:9104"]
+        labels: { instance: primary, role: primary }
+      - targets: ["exporter-replica:9104"]
+        labels: { instance: replica, role: replica }

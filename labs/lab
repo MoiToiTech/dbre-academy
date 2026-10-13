@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+# ./lab — start, inspect, break and reset the DBRE Academy lab.
+# Run ./lab help for the command list.
+
+LAB_DIR="$(cd "$(dirname "$0")" && pwd)"
+export LAB_DIR
+# shellcheck source=scripts/lib.sh
+. "$LAB_DIR/scripts/lib.sh"
+
+usage() {
+  cat <<'EOF'
+Usage: ./lab <command> [args]
+
+Environment
+  doctor                    Check Docker, Compose, memory and free ports
+  up [--observability]      Start primary + replica, configure replication,
+                            load the dataset (first run only). With
+                            --observability also Prometheus and Grafana.
+  status                    Containers, replication health, dataset summary
+  down                      Stop containers, keep data
+  reset                     Destroy everything and start again from scratch
+  destroy                   Stop containers and delete all lab data volumes
+
+Working in the lab
+  sql [primary|replica] [mysql args]
+                            Open a mysql shell as root (default: primary).
+                            Example: ./lab sql replica -e "SHOW REPLICA STATUS\G"
+  shell [primary|replica]   Open a bash shell inside a MySQL container
+  logs [service]            Follow container logs (default: primary)
+  fingerprint [primary|replica]
+                            Row counts and checksums of the shop dataset
+
+Scenarios (exercises)
+  scenario list             List scenarios
+  scenario setup <name>     Inject the scenario's fault
+  scenario check <name>     Validate your fix (exit code 0 = solved)
+  scenario reset <name>     Undo the scenario and restore the baseline
+  check <name>              Shortcut for: scenario check <name>
+
+Ports bind to 127.0.0.1 only: primary 13306, replica 13307,
+Prometheus 19090, Grafana 13000. Override with DBRE_PRIMARY_PORT etc.
+EOF
+}
+
+cmd_doctor() {
+  local ok=0 mem port
+  command -v docker >/dev/null 2>&1 || { echo "docker: not found — install Docker Desktop, OrbStack, Colima or Docker Engine"; exit 1; }
+  docker info >/dev/null 2>&1 || { echo "docker: daemon not reachable — is Docker running?"; exit 1; }
+  echo "docker:  $(docker version --format '{{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})')"
+  if docker compose version >/dev/null 2>&1; then
+    echo "compose: $(docker compose version --short)"
+  else
+    echo "compose: v2 plugin not found ('docker compose'); docker-compose v1 is not supported"; ok=1
+  fi
+  mem="$(docker info --format '{{.MemTotal}}')"
+  echo "memory available to Docker: $((mem / 1024 / 1024)) MiB"
+  if [ "$mem" -lt $((3 * 1024 * 1024 * 1024)) ]; then
+    echo "  warning: less than 3 GiB; the observability profile may not fit"; ok=1
+  fi
+  for port in "${DBRE_PRIMARY_PORT:-13306}" "${DBRE_REPLICA_PORT:-13307}" "${DBRE_PROMETHEUS_PORT:-19090}" "${DBRE_GRAFANA_PORT:-13000}"; do
+    if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then
+      if dc ps -q 2>/dev/null | grep -q .; then
+        echo "port $port: in use (probably by this lab)"
+      else
+        echo "port $port: in use by another program — set the matching DBRE_*_PORT"; ok=1
+      fi
+    else
+      echo "port $port: free"
+    fi
+  done
+  [ "$ok" -eq 0 ] && echo "OK" || echo "Some checks need attention (see above)."
+  return "$ok"
+}
+
+cmd_up() {
+  local profile=""
+  case "${1:-}" in
+    --observability|-o) profile="--profile observability" ;;
+    "") ;;
+    *) die "unknown option: $1" ;;
+  esac
+  info "Starting containers (project: $DBRE_PROJECT)"
+  # shellcheck disable=SC2086
+  dc $profile up -d --quiet-pull
+  wait_healthy primary
+  wait_healthy replica
+  configure_replication
+  if ! dataset_loaded; then
+    load_dataset
+  else
+    wait_replica_caught_up 120 || warn "replica is behind the primary — run ./lab status"
+  fi
+  cmd_status
+  if [ -n "$profile" ]; then
+    echo
+    echo "Grafana:    http://127.0.0.1:${DBRE_GRAFANA_PORT:-13000}  (dashboard: DBRE Lab — MySQL)"
+    echo "Prometheus: http://127.0.0.1:${DBRE_PROMETHEUS_PORT:-19090}"
+  fi
+}
+
+cmd_status() {
+  dc_all ps --format 'table {{.Service}}\t{{.State}}\t{{.Status}}\t{{.Ports}}'
+  echo
+  if is_running primary; then
+    echo "primary: $(sqlv primary "SELECT CONCAT('MySQL ', VERSION(), ', read_only=', @@read_only, ', gtid_executed=', REPLACE(@@gtid_executed, '\n', ''))")"
+  else
+    echo "primary: not running"
+  fi
+  if is_running replica; then
+    sqlv replica "
+      SELECT CONCAT('replica: IO=', c.SERVICE_STATE, ', SQL=', a.SERVICE_STATE,
+                    ', read_only=', @@read_only, ', super_read_only=', @@super_read_only,
+                    IF(c.LAST_ERROR_NUMBER <> 0, CONCAT(', IO error ', c.LAST_ERROR_NUMBER, ': ', c.LAST_ERROR_MESSAGE), ''),
+                    IFNULL((SELECT CONCAT(', SQL error ', w.LAST_ERROR_NUMBER, ': ', w.LAST_ERROR_MESSAGE)
+                            FROM performance_schema.replication_applier_status_by_worker w
+                            WHERE w.LAST_ERROR_NUMBER <> 0 LIMIT 1), ''))
+      FROM performance_schema.replication_connection_status c
+      JOIN performance_schema.replication_applier_status a USING (CHANNEL_NAME)" \
+      || echo "replica: replication not configured"
+  else
+    echo "replica: not running"
+  fi
+  if is_running primary && dataset_loaded; then
+    echo "dataset: shop.orders has $(sqlv primary 'SELECT COUNT(*) FROM shop.orders') rows on the primary"
+  fi
+}
+
+cmd_down()    { info "Stopping containers (data is kept)"; dc_all stop; }
+cmd_destroy() { info "Removing containers and lab volumes"; dc_all down -v --remove-orphans; }
+cmd_reset()   { cmd_destroy; cmd_up "$@"; }
+
+cmd_sql() {
+  local svc="${1:-primary}"
+  case "$svc" in primary|replica) shift || true ;; *) svc=primary ;; esac
+  if [ -t 0 ] && [ -t 1 ]; then
+    dc exec -e MYSQL_PWD="$DBRE_ROOT_PASSWORD" "$svc" mysql -uroot --default-character-set=utf8mb4 "$@"
+  else
+    sql "$svc" "$@"
+  fi
+}
+
+cmd_shell() {
+  local svc="${1:-primary}"
+  dc exec "$svc" bash
+}
+
+cmd_fingerprint() {
+  local svc="${1:-primary}"
+  sql "$svc" -t < "$LAB_DIR/datasets/shop/fingerprint.sql"
+}
+
+scenario_dir() {
+  local name="${1:-}"
+  [ -n "$name" ] || die "scenario name required — see ./lab scenario list"
+  [ -d "$LAB_DIR/scenarios/$name" ] || die "no such scenario: $name — see ./lab scenario list"
+  printf '%s' "$LAB_DIR/scenarios/$name"
+}
+
+cmd_scenario() {
+  local action="${1:-list}" dir
+  case "$action" in
+    list)
+      for dir in "$LAB_DIR"/scenarios/*/; do
+        [ -f "$dir/setup.sh" ] || continue
+        printf '%-28s %s\n' "$(basename "$dir")" "$(sed -n 's/^# summary: //p' "$dir/setup.sh")"
+      done ;;
+    setup|check|reset)
+      dir="$(scenario_dir "${2:-}")"
+      is_running primary || die "the lab is not running — start it with ./lab up"
+      bash "$dir/$action.sh" ;;
+    *) die "unknown scenario action: $action (list|setup|check|reset)" ;;
+  esac
+}
+
+main() {
+  local cmd="${1:-help}"
+  shift || true
+  case "$cmd" in
+    doctor)      cmd_doctor "$@" ;;
+    up)          cmd_up "$@" ;;
+    status)      cmd_status ;;
+    down|stop)   cmd_down ;;
+    destroy|clean) cmd_destroy ;;
+    reset)       cmd_reset "$@" ;;
+    sql|mysql)   cmd_sql "$@" ;;
+    shell)       cmd_shell "$@" ;;
+    logs)        dc_all logs -f --tail 100 "${1:-primary}" ;;
+    fingerprint) cmd_fingerprint "$@" ;;
+    scenario)    cmd_scenario "$@" ;;
+    check)       cmd_scenario check "$@" ;;
+    help|-h|--help) usage ;;
+    *) usage; exit 1 ;;
+  esac
+}
+
+main "$@"

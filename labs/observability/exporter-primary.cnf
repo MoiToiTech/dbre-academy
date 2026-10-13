@@ -1,0 +1,6 @@
+# Lab-only credentials for mysqld_exporter.
+[client]
+host = primary
+port = 3306
+user = exporter
+password = dbre-lab-exporter

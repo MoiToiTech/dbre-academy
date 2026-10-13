@@ -1,0 +1,117 @@
+# DBRE Academy lab environment.
+#
+# Drive it through ./lab (see labs/README.md) rather than calling docker compose
+# directly: ./lab also configures replication, loads the dataset and waits for
+# health. Every published port binds to 127.0.0.1 only. Credentials here are
+# lab-only and must never be reused anywhere else.
+
+name: ${DBRE_PROJECT:-dbre}
+
+x-mysql: &mysql
+  image: mysql:8.4.11
+  restart: "no"
+  environment:
+    MYSQL_ROOT_PASSWORD: ${DBRE_ROOT_PASSWORD:-dbre-lab-root}
+    MYSQL_ROOT_HOST: "%"
+    TZ: UTC
+  healthcheck:
+    # mysqladmin ping succeeds against the entrypoint's temporary server too,
+    # so ask for the real one: it listens on TCP, the temporary one does not.
+    test: ["CMD-SHELL", "mysqladmin -h127.0.0.1 -uroot -p\"$$MYSQL_ROOT_PASSWORD\" ping --silent"]
+    interval: 3s
+    timeout: 3s
+    retries: 60
+    start_period: 10s
+  ulimits:
+    nofile: { soft: 65536, hard: 65536 }
+
+services:
+  primary:
+    <<: *mysql
+    hostname: primary
+    ports:
+      - "127.0.0.1:${DBRE_PRIMARY_PORT:-13306}:3306"
+    volumes:
+      - ./mysql/primary.cnf:/etc/mysql/conf.d/dbre.cnf:ro
+      - ./mysql/init-primary:/docker-entrypoint-initdb.d:ro
+      - ./datasets:/datasets:ro
+      - ./scenarios:/scenarios:ro
+      - primary-data:/var/lib/mysql
+      - backups:/backups
+
+  replica:
+    <<: *mysql
+    hostname: replica
+    ports:
+      - "127.0.0.1:${DBRE_REPLICA_PORT:-13307}:3306"
+    volumes:
+      - ./mysql/replica.cnf:/etc/mysql/conf.d/dbre.cnf:ro
+      - ./datasets:/datasets:ro
+      - replica-data:/var/lib/mysql
+      - backups:/backups
+
+  # --- Observability (optional): ./lab up --observability -----------------
+
+  exporter-primary:
+    image: prom/mysqld-exporter:v0.20.0
+    profiles: ["observability"]
+    command: &exporter-args
+      - --config.my-cnf=/etc/exporter/my.cnf
+      - --collect.info_schema.innodb_metrics
+      - --collect.info_schema.processlist
+      - --collect.perf_schema.eventswaits
+      - --collect.perf_schema.replication_applier_status_by_worker
+      - --collect.slave_status
+    volumes:
+      - ./observability/exporter-primary.cnf:/etc/exporter/my.cnf:ro
+    depends_on:
+      primary: { condition: service_healthy }
+
+  exporter-replica:
+    image: prom/mysqld-exporter:v0.20.0
+    profiles: ["observability"]
+    command: *exporter-args
+    volumes:
+      - ./observability/exporter-replica.cnf:/etc/exporter/my.cnf:ro
+    depends_on:
+      replica: { condition: service_healthy }
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    profiles: ["observability"]
+    command:
+      - --config.file=/etc/prometheus/dbre/prometheus.yml
+      - --storage.tsdb.retention.time=2d
+      - --web.enable-lifecycle
+    ports:
+      - "127.0.0.1:${DBRE_PROMETHEUS_PORT:-19090}:9090"
+    volumes:
+      # A directory mount, not single files: editors that replace a file on
+      # save would otherwise leave the container reading the old one.
+      - ./observability/prometheus:/etc/prometheus/dbre:ro
+      - prometheus-data:/prometheus
+
+  grafana:
+    image: grafana/grafana:12.4.13
+    profiles: ["observability"]
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${DBRE_GRAFANA_PASSWORD:-dbre-lab-grafana}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+    ports:
+      - "127.0.0.1:${DBRE_GRAFANA_PORT:-13000}:3000"
+    volumes:
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  primary-data:
+  replica-data:
+  backups:
+  prometheus-data:
