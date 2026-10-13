@@ -23,8 +23,12 @@ Tick each box in the pull request, or note what must change.
       reports and code-of-conduct reports.
 - [ ] **No certification alignment** (research.md §4.5), and the roadmap's
       "Not planned" list: no LMS, no paid tier of this repository.
-- [ ] **MySQL version.** Pinned to MySQL 8.4.11 (LTS). Dependabot will
-      propose base-image updates monthly; CI re-runs the full lab on each.
+- [ ] **MySQL version.** Pinned to MySQL 8.4.11, the newest 8.4 LTS
+      release. Docker's `lts` tag now points to MySQL 9.7 (checked
+      13 Oct 2026), so 8.4 is the previous LTS series, not the newest.
+      Dependabot proposes 8.4.x patch updates monthly and ignores newer
+      series; CI re-runs the full lab on each. Moving to 9.7 is a course
+      revision, not a dependency bump.
 
 ## 2. First-hand experience to add
 
