@@ -8,7 +8,7 @@ a plan, not material.
 
 | Course | Status | Scope |
 |---|---|---|
-| [MySQL Production DBA Fundamentals](../courses/mysql-production-dba/README.md) | v1, free | Ten modules, 8–12 hours, MySQL 8.4 LTS, Docker labs with automated checks |
+| [MySQL Production DBA Fundamentals](../courses/mysql-production-dba/README.md) | v1, free | Ten modules, about 13–15 hours, MySQL 8.4 LTS, Docker labs with automated checks |
 
 ## Planned
 
