@@ -8,7 +8,10 @@
 name: ${DBRE_PROJECT:-dbre}
 
 x-mysql: &mysql
-  image: mysql:8.4.11
+  # mysql:8.4.11 plus mysqlbinlog, mysqlcheck, mysqldumpslow and procps.
+  # Built locally on the first ./lab up (about a minute); see mysql/Dockerfile.
+  image: dbre-academy/mysql:8.4.11
+  build: ./mysql
   restart: "no"
   environment:
     MYSQL_ROOT_PASSWORD: ${DBRE_ROOT_PASSWORD:-dbre-lab-root}
