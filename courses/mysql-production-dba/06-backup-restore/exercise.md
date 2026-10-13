@@ -67,16 +67,77 @@ of any real recovery:
 | GTIDs | Already executed here: replay needs `--skip-gtids` | Fresh server: original GTIDs replay as-is |
 | Downtime | The schema is wrong while you work | Only the affected table, only at the end |
 
+**On a live system, restore to a separate instance.** The production
+schema stays online and correct for everything the accident did not touch,
+nothing that keeps writing can be overwritten by the restore, and the
+original binary logs are only read. Restore and replay on a scratch server
+up to just before the bad transaction, compare, then copy the repaired rows
+back in one reviewed change.
+
 In this exercise you restore **in place on the primary**, with the replica
-attached. It exercises every trap at once: the backup must load with binary
-logging on (that is why it was taken with `--set-gtid-purged=OFF`), the
-replay must cope with GTIDs that are already executed, and the replica must
-end identical without being touched by hand. On a real system with one
-damaged table and a business that keeps writing, the separate-instance
-route is often kinder: restore and replay on a scratch server up to just
-before the bad transaction, then copy the repaired rows back.
+attached, and that is an **offline technique**: it is only safe because
+nothing else is writing. It is taught here because it exercises every trap
+at once: the backup must load with binary logging on (that is why it was
+taken with `--set-gtid-purged=OFF`), the replay must cope with GTIDs that
+are already executed, and the replica must end identical without being
+touched by hand.
 
 <!-- founder-review: which route MoiToi.TECH picks in practice, and when, would help here -->
+
+### Why in place needs every writer stopped first
+
+The restore drops and recreates `shop`, and the replay stops at the binary
+log you close before restoring. A write that lands after that boundary is
+in neither: the restore overwrites it and the replay never sees it. It is
+lost without an error. So, before the first destructive command:
+
+- **Fence every writer** at its source: the application, background jobs,
+  cron and schedulers, the event scheduler, other people's console
+  sessions. `read_only = ON` is a backstop only: it does not stop accounts
+  with `CONNECTION_ADMIN`. Do **not** turn on `super_read_only` for the
+  restore: it blocks every client write, including your own restore and
+  replay ([read_only, super_read_only](https://dev.mysql.com/doc/refman/8.4/en/server-system-variables.html#sysvar_super_read_only)).
+- **Drain them**: the processlist shows no session but yours and the
+  replica's, and no transaction is open.
+- **Only then record the replay boundary** with `FLUSH BINARY LOGS`.
+- **Keep the evidence**: copy the binary logs of the incident window, the
+  backup's coordinates and the bad GTID somewhere the restore cannot touch.
+- **Verify before writers come back**: fingerprints, replication health, the
+  check. Lift the fence last.
+
+**In this lab the workload is already stopped**: setup's writes finished
+before it printed its message, and the scenario starts no load generator.
+Confirm it rather than trust it. The `Binlog Dump GTID` session is the
+replica reading the binary log, and the event scheduler has no events to
+run; neither writes:
+
+```sql test
+SELECT USER, HOST, COMMAND, STATE
+  FROM performance_schema.processlist
+ WHERE ID <> CONNECTION_ID() AND USER <> 'system user'
+ ORDER BY USER;
+SELECT COUNT(*) AS open_transactions FROM information_schema.innodb_trx;
+SELECT COUNT(*) AS scheduled_events FROM information_schema.EVENTS;
+```
+
+```text
++-----------------+------------------+------------------+--------------------------------+
+| USER            | HOST             | COMMAND          | STATE                          |
++-----------------+------------------+------------------+--------------------------------+
+| event_scheduler | localhost        | Daemon           | Waiting on empty queue         |
+| repl            | 192.168.x.x:...  | Binlog Dump GTID | Source has sent all binlog ... |
++-----------------+------------------+------------------+--------------------------------+
++-------------------+
+| open_transactions |
++-------------------+
+|                 0 |
++-------------------+
++------------------+
+| scheduled_events |
++------------------+
+|                0 |
++------------------+
+```
 
 ## Your task
 
@@ -88,14 +149,20 @@ Work on the primary (`./lab shell primary`; inside the container,
 2. **Find the backup's coordinates** in the dump header.
 3. **Find the bad transaction's GTID** in the binary logs after those
    coordinates.
-4. **Close the current binary log** (`FLUSH BINARY LOGS`) and note which
-   files hold the incident window. Anything written after this, including
-   your restore, must not be replayed.
-5. **Restore the backup** on the primary.
-6. **Replay** every binary log from the backup's coordinates through the
+4. **Confirm no writer is connected** (the query above). On a real system
+   this is where you fence and drain them.
+5. **Close the current binary log** (`FLUSH BINARY LOGS`): this is the
+   replay boundary. Note which files hold the incident window. Anything
+   written after this, including your restore, must not be replayed.
+6. **Keep the evidence**: copy the window's binary logs to
+   `/backups/pitr/evidence/` and write down the coordinates and the bad
+   GTID.
+7. **Restore the backup** on the primary.
+8. **Replay** every binary log from the backup's coordinates through the
    last file of the window, excluding only the bad transaction.
-7. **Verify**: `./lab fingerprint primary`, `./lab fingerprint replica`,
-   `./lab status`, and finally the check.
+9. **Verify**: `./lab fingerprint primary`, `./lab fingerprint replica`,
+   `./lab status`, and finally the check. On a real system writers come
+   back only after this step passes.
 
 Some read-only starting points. The backup and its checksum:
 
@@ -175,6 +242,8 @@ Restore the backup again and replay once.
 
 ```text
 mysql -uroot -e "FLUSH BINARY LOGS"
+mkdir -p /backups/pitr/evidence
+cp <first file> ... <last file before the flush> /backups/pitr/evidence/
 mysql -uroot < /backups/pitr/shop-full.sql
 mysqlbinlog --start-position=<pos> --exclude-gtids='<bad gtid>' --skip-gtids \
     <first file> ... <last file before the flush> | mysql -uroot
@@ -205,8 +274,10 @@ All checks passed.
 - Look at `@@GLOBAL.gtid_executed` on the primary now. Which GTIDs did the
   restore and replay create, and is the bad transaction still in the set?
   Why is that correct?
-- Which writes would have been lost if the application had kept writing to
-  `shop.payments` while you restored? What would you have done about it?
+- Suppose the application had still been writing when you ran
+  `FLUSH BINARY LOGS`. Which of its writes would the restore have
+  overwritten, and why would the replay not bring them back? How does the
+  separate-instance route avoid the problem altogether?
 
 ## Reset
 

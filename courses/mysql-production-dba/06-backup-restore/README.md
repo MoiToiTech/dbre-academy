@@ -519,7 +519,11 @@ SET @@SESSION.GTID_NEXT= 'AUTOMATIC' /* added by mysqlbinlog */ /*!*/;
 ```
 
 Transaction `:53` deleted two rows. Now restore and replay. The restore
-here goes into the same server, and that has a GTID consequence worth
+here goes into the same server. That is safe only because nothing else
+writes `lab.notes`: a write landing after the binlog is closed would be
+overwritten by the restore and missed by the replay. On a live system,
+restore to a separate instance; the exercise covers the choice. Restoring
+in place also has a GTID consequence worth
 seeing for yourself: the server has already executed `:52` and `:54`, and a
 GTID-enabled server silently skips any transaction whose GTID is in
 `gtid_executed`

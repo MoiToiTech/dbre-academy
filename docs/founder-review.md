@@ -81,9 +81,14 @@ or simplifies deliberately.
       exceeds the number of distinct statements (observed).
 - [ ] **Module 6**: the PITR exercise restores *in place* on the primary
       with the replica attached and replays with
-      `--exclude-gtids … --skip-gtids`. The exercise weighs this against
-      restoring to a separate instance. Confirm you are comfortable teaching
-      in-place restore as the primary path.
+      `--exclude-gtids … --skip-gtids`. After the PR #1 review it teaches
+      restore to a separate instance as the preferred route on a live
+      system, and in place as an explicitly offline lab technique: the lab's
+      workload is stated to be stopped (and checked in the processlist),
+      writers are fenced and drained before `FLUSH BINARY LOGS` marks the
+      replay boundary, the window's binlogs are kept as evidence, and
+      writes come back only after verification. `super_read_only` is named
+      as the wrong fence (it blocks the restore too). Confirm this stance.
 - [ ] **Module 7**: `sql_replica_skip_counter` does not error under GTIDs in
       8.4.11 — the `SET` succeeds with warning 4016 and nothing is skipped
       (observed; the manual says it cannot be issued).
