@@ -1,0 +1,59 @@
+# Production Incident Challenges: start each from scratch, prove the incident
+# reproduces, a symptom-only fix is rejected, the reference fix passes, and
+# reset returns to the incident. On amd64 and arm64.
+name: challenges
+
+on:
+  push:
+    branches: [main]
+    paths: ["challenges/**", ".github/workflows/challenges.yml"]
+  pull_request:
+    paths: ["challenges/**", ".github/workflows/challenges.yml"]
+  schedule:
+    - cron: "41 4 * * 1"   # weekly, to catch upstream image drift
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: challenges-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    name: Challenge scripts (shellcheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          for d in challenges/*/; do
+            (cd "$d" && shellcheck -S warning -x challenge app/*.sh instructor/*.sh tests/*.sh)
+          done
+
+  challenge-001:
+    name: "#001 end to end (${{ matrix.runner }})"
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Start, detect, reject symptom fix, fix, reset, fix again, clean
+        run: challenges/001-slow-database/tests/challenge-test.sh 2>&1 | tee challenge-001.log
+        env:
+          NO_COLOR: "1"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: challenge-001-${{ matrix.runner }}
+          path: challenge-001.log
+          if-no-files-found: ignore

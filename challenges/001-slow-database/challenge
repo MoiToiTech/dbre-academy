@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# MoiToi Engineering Challenge #001 — "The database is slow. Nobody changed anything."
+#
+#   ./challenge doctor    check Docker, memory and the port
+#   ./challenge start     start the lab and replay the night before the incident
+#   ./challenge status    the on-call dashboard: latency, throughput, backlog
+#   ./challenge sql       MySQL shell as root
+#   ./challenge logs      follow the order service's log
+#   ./challenge verify    is the incident resolved?
+#   ./challenge reset     back to the start of the incident (about a minute)
+#   ./challenge clean     remove containers and data
+#
+# Environment: CH001_PORT (default 13306), CH001_PROJECT (default ch001),
+# CH001_BATCHES (night size, default 40000).
+set -euo pipefail
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+export CH001_PROJECT="${CH001_PROJECT:-ch001}"
+export CH001_PORT="${CH001_PORT:-13306}"
+BATCHES="${CH001_BATCHES:-40000}"
+
+# Thresholds used by verify. A healthy claim locks the rows it takes plus a
+# handful of gap locks; the incident makes it lock hundreds of thousands.
+HEALTHY_CLAIM_LOCKS=200
+STALE_TRX_SECONDS=120
+
+if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+  B=$'\e[1m'; G=$'\e[32m'; R=$'\e[31m'; Y=$'\e[33m'; N=$'\e[0m'
+else
+  B=""; G=""; R=""; Y=""; N=""
+fi
+say()  { printf '%s\n' "$*"; }
+ok()   { printf '  %s✓%s %s\n' "$G" "$N" "$*"; }
+bad()  { printf '  %s✗%s %s\n' "$R" "$N" "$*"; }
+warn() { printf '  %s!%s %s\n' "$Y" "$N" "$*"; }
+die()  { printf '%s%s%s\n' "$R" "$*" "$N" >&2; exit 1; }
+
+compose() { docker compose -f "$DIR/docker-compose.yml" "$@"; }
+# Root shell into the server, batch mode, no headers.
+q() { compose exec -T db mysql -uroot -pchallenge --batch --skip-column-names "$@" 2>/dev/null; }
+
+running() { [ -n "$(compose ps -q db 2>/dev/null)" ] && q -e 'SELECT 1' >/dev/null 2>&1; }
+
+cmd_doctor() {
+  local fails=0
+  command -v docker >/dev/null || die "Docker is not installed."
+  docker info >/dev/null 2>&1 || die "Docker is installed but not running."
+  if docker compose version >/dev/null 2>&1; then ok "Docker Compose v2: $(docker compose version --short)"; else bad "Docker Compose v2 is missing"; fails=1; fi
+  local mem; mem=$(docker info --format '{{.MemTotal}}')
+  if [ "$mem" -ge 2000000000 ]; then ok "Docker memory: $((mem / 1024 / 1024)) MiB"; else bad "Docker has $((mem / 1024 / 1024)) MiB; the lab needs about 2 GiB"; fails=1; fi
+  ok "Architecture: $(docker info --format '{{.Architecture}}')"
+  if (exec 3<>"/dev/tcp/127.0.0.1/$CH001_PORT") 2>/dev/null && ! running; then
+    bad "Port $CH001_PORT is in use; run with CH001_PORT=<free port> ./challenge start"; fails=1
+  else
+    ok "Port $CH001_PORT is free (or already ours)"
+  fi
+  [ "$fails" -eq 0 ] && say "Ready." || exit 1
+}
+
+wait_for() { # wait_for <seconds> <description> <command...>
+  local t=$1 what=$2; shift 2
+  for _ in $(seq "$t"); do "$@" && return 0; sleep 1; done
+  die "Timed out waiting for $what."
+}
+export_has_snapshot() {
+  [ "$(q -e "SELECT COUNT(*) FROM information_schema.innodb_trx t JOIN information_schema.processlist p ON p.id = t.trx_mysql_thread_id WHERE p.user = 'analytics'")" = 1 ]
+}
+
+cmd_start() {
+  if running && [ "$(q -e "SELECT COUNT(*) FROM challenge.run WHERE k = 'started_at'")" = 1 ]; then
+    say "The lab is already running. ./challenge status shows the dashboard; ./challenge reset starts over."
+    return 0
+  fi
+  say "${B}Starting MySQL 8.4${N} (the first run pulls the image)…"
+  compose up -d --quiet-pull db >/dev/null
+  wait_for 180 "MySQL to start" running
+  say "Loading the shop database…"
+  q < "$DIR/sql/01-schema.sql"
+  q < "$DIR/sql/02-seed.sql"
+  q < "$DIR/sql/03-night.sql"
+  q -e "INSERT INTO challenge.run VALUES
+          ('orders_fingerprint', (SELECT CONCAT(COUNT(*), ':', SUM(CRC32(CONCAT_WS('|', id, customer_id, status, total, created_at)))) FROM shop.orders))"
+  say "Last night: the nightly jobs run…"
+  compose up -d nightly-export >/dev/null
+  wait_for 60 "the nightly export" export_has_snapshot
+  say "Replaying the night's traffic: $((BATCHES * 10)) order e-mails queued and sent (under a minute)…"
+  # The replay commits every batch, like the real workers. Durable commits
+  # would make that take minutes on a laptop, so relax flushing for the
+  # replay only and restore the server's defaults before morning.
+  q -e "SET GLOBAL innodb_flush_log_at_trx_commit = 0; SET GLOBAL sync_binlog = 0;
+        CALL challenge.replay_night($BATCHES);
+        SET GLOBAL innodb_flush_log_at_trx_commit = 1; SET GLOBAL sync_binlog = 1;"
+  q -e "INSERT INTO challenge.run VALUES
+          ('night_messages', (SELECT COUNT(*) FROM shop.outbox)),
+          ('started_at', DATE_FORMAT(NOW(), '%Y-%m-%d %H:%i:%s'))"
+  say "Morning: the order service is taking traffic."
+  compose up -d app >/dev/null
+  say ""
+  say "${B}The incident is live.${N} Read the briefing in README.md, then:"
+  say "  ./challenge status   the on-call dashboard"
+  say "  ./challenge sql      a MySQL shell (root)"
+}
+
+# Per-statement latency over a short window, from performance_schema's digest
+# summary: the same numbers a dashboard built on it would show.
+digest_snapshot() {
+  q -e "SELECT CASE WHEN DIGEST_TEXT LIKE 'UPDATE \`outbox\` SET%' THEN 'claim'
+                    WHEN DIGEST_TEXT LIKE 'INSERT INTO \`outbox\`%' THEN 'enqueue' END AS s,
+               SUM(COUNT_STAR), SUM(SUM_TIMER_WAIT), SUM(SUM_LOCK_TIME), SUM(SUM_ROWS_EXAMINED)
+          FROM performance_schema.events_statements_summary_by_digest
+         WHERE SCHEMA_NAME = 'shop'
+           AND (DIGEST_TEXT LIKE 'UPDATE \`outbox\` SET%' OR DIGEST_TEXT LIKE 'INSERT INTO \`outbox\`%')
+         GROUP BY s"
+}
+
+cmd_status() {
+  running || die "The lab is not running. Start it with ./challenge start."
+  local window=5 a b
+  a=$(digest_snapshot); sleep "$window"; b=$(digest_snapshot)
+  say "${B}Order service — last ${window} s${N}"
+  printf '  %-34s %10s %12s %12s %14s\n' "statement" "calls/s" "avg latency" "avg lock" "rows examined"
+  for s in enqueue claim; do
+    local label
+    [ "$s" = enqueue ] && label="enqueue confirmation (INSERT)" || label="claim next 10 messages (UPDATE)"
+    printf '%s\n%s\n' "$a" "$b" | awk -v s="$s" -v w="$window" -v label="$label" '
+      $1 == s { n++; c[n] = $2; t[n] = $3; l[n] = $4; r[n] = $5 }
+      END {
+        dc = c[2] - c[1]
+        if (n < 2 || dc <= 0) { printf "  %-34s %10s\n", label, "no calls"; exit }
+        printf "  %-34s %10.1f %10.2f ms %10.2f ms %14.1f\n", label, dc / w,
+               (t[2] - t[1]) / dc / 1e9, (l[2] - l[1]) / dc / 1e9, (r[2] - r[1]) / dc
+      }'
+  done
+  say ""
+  say "${B}Outbox${N}"
+  q -e "SELECT CONCAT('  pending: ', SUM(status = 'pending'), '   sent in the last minute: ', SUM(status = 'sent' AND sent_at > NOW(3) - INTERVAL 1 MINUTE),
+                     '   oldest pending: ', IFNULL(TIMESTAMPDIFF(SECOND, MIN(IF(status = 'pending', created_at, NULL)), NOW(3)), 0), ' s')
+          FROM shop.outbox"
+  say ""
+  say "${B}Server${N}"
+  local cpu; cpu=$(docker stats --no-stream --format '{{.CPUPerc}} CPU, {{.MemUsage}}' "$(compose ps -q db)" 2>/dev/null || echo "n/a")
+  say "  mysqld container: $cpu"
+  q -e "SELECT CONCAT('  threads running: ', MAX(IF(VARIABLE_NAME = 'Threads_running', VARIABLE_VALUE, NULL)),
+                     '   buffer pool reads from disk: ', MAX(IF(VARIABLE_NAME = 'Innodb_buffer_pool_reads', VARIABLE_VALUE, NULL)),
+                     '   uptime: ', MAX(IF(VARIABLE_NAME = 'Uptime', VARIABLE_VALUE, NULL)), ' s')
+          FROM performance_schema.global_status
+         WHERE VARIABLE_NAME IN ('Threads_running', 'Innodb_buffer_pool_reads', 'Uptime')"
+}
+
+cmd_sql() {
+  running || die "The lab is not running. Start it with ./challenge start."
+  compose exec db mysql -uroot -pchallenge shop
+}
+
+cmd_logs() { compose logs -f app; }
+
+# Locks one claim of ten messages takes, measured by running the order
+# service's own claim statement in a transaction and rolling it back.
+claim_locks() {
+  q -e "SET SESSION innodb_lock_wait_timeout = 5;
+        START TRANSACTION;
+        UPDATE shop.outbox SET status = 'sent', sent_at = NOW(3) WHERE status = 'pending' ORDER BY id LIMIT 10;
+        -- Not information_schema.innodb_trx: that is a cache refreshed at most
+        -- every 0.1 s and may not show this transaction yet.
+        SELECT COUNT(*) FROM performance_schema.data_locks d
+          JOIN performance_schema.threads t ON t.THREAD_ID = d.THREAD_ID
+         WHERE t.PROCESSLIST_ID = CONNECTION_ID();
+        ROLLBACK;" | tail -n 1
+}
+
+cmd_verify() {
+  running || die "The lab is not running. Start it with ./challenge start."
+  local fails=0
+  say "${B}Checking the incident…${N}"
+
+  # 1. Nothing was fixed by destroying data.
+  local want got
+  want=$(q -e "SELECT v FROM challenge.run WHERE k = 'orders_fingerprint'")
+  got=$(q -e "SELECT CONCAT(COUNT(*), ':', SUM(CRC32(CONCAT_WS('|', id, customer_id, status, total, created_at)))) FROM shop.orders")
+  if [ -n "$want" ] && [ "$want" = "$got" ]; then ok "Orders are intact."; else bad "The orders table changed. A fix must not lose or rewrite data — ./challenge reset to start over."; fails=$((fails + 1)); fi
+  local night rows
+  night=$(q -e "SELECT v FROM challenge.run WHERE k = 'night_messages'")
+  rows=$(q -e "SELECT COUNT(*) FROM shop.outbox")
+  if [ -n "$night" ] && [ "${rows:-0}" -ge "$night" ]; then ok "Outbox history is intact ($rows messages)."; else bad "Outbox messages were deleted. A fix must not lose data — ./challenge reset to start over."; fails=$((fails + 1)); fi
+  if [ "$(q -e "SELECT GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) FROM information_schema.statistics WHERE TABLE_SCHEMA = 'shop' AND TABLE_NAME = 'outbox' AND INDEX_NAME = 'idx_status_id'")" = "status,id" ]; then
+    ok "The order service's index is in place."
+  else
+    bad "The outbox index idx_status_id (status, id) is missing or changed."; fails=$((fails + 1))
+  fi
+
+  # 2. The cause is gone, not just the symptom.
+  local stale
+  stale=$(q -e "SELECT COUNT(*) FROM information_schema.innodb_trx
+                 WHERE trx_started < NOW() - INTERVAL $STALE_TRX_SECONDS SECOND
+                    OR trx_started <= (SELECT v FROM challenge.run WHERE k = 'started_at')")
+  if [ "${stale:-1}" = 0 ]; then
+    ok "Nothing is left that would bring the slowdown back."
+  else
+    bad "The condition behind the slowdown is still present. Even if the symptom eases, it will come back."
+    fails=$((fails + 1))
+  fi
+
+  # 3. The symptom: what a claim costs. Background cleanup can take a little
+  #    while to catch up after the cause is removed, so wait for it.
+  local locks="" deadline=$((SECONDS + 120))
+  while :; do
+    locks=$(claim_locks || true)
+    [[ "$locks" =~ ^[0-9]+$ ]] && [ "$locks" -lt "$HEALTHY_CLAIM_LOCKS" ] && break
+    [ "$fails" -gt 0 ] || [ "$SECONDS" -ge "$deadline" ] && break
+    printf '  … claim still takes %s row locks; waiting for the server to catch up\r' "${locks:-?}"
+    sleep 5
+  done
+  printf '%80s\r' ""
+  if [[ "$locks" =~ ^[0-9]+$ ]] && [ "$locks" -lt "$HEALTHY_CLAIM_LOCKS" ]; then
+    ok "Claiming 10 messages takes $locks row locks (healthy: under $HEALTHY_CLAIM_LOCKS)."
+  else
+    bad "Claiming 10 messages takes ${locks:-an unknown number of} row locks (healthy: under $HEALTHY_CLAIM_LOCKS)."
+    fails=$((fails + 1))
+  fi
+
+  if [ "$fails" -gt 0 ]; then
+    say ""; say "Not resolved yet. Keep investigating — the hints in README.md go one step at a time."
+    exit 1
+  fi
+
+  local started mins
+  started=$(q -e "SELECT v FROM challenge.run WHERE k = 'started_at'")
+  mins=$(q -e "SELECT TIMESTAMPDIFF(MINUTE, '$started', NOW())")
+  say ""
+  say "${G}${B}Incident resolved.${N} Time since the incident went live: ${mins} min."
+  say ""
+  say "Share it without spoilers:"
+  say "  I solved MoiToi Engineering Challenge #001, \"The database is slow. Nobody changed anything.\","
+  say "  in ${mins} minutes. Can you? https://github.com/MoiToiTech/dbre-academy #MoiToiChallenge"
+  say ""
+  say "Now read instructor/README.md for the full explanation and how to stop it happening again."
+}
+
+cmd_reset() {
+  say "Resetting to the start of the incident…"
+  compose down -v --remove-orphans >/dev/null 2>&1 || true
+  cmd_start
+}
+
+cmd_clean() {
+  compose down -v --remove-orphans
+  say "Removed. The mysql:8.4.11 image stays; remove it with: docker image rm mysql:8.4.11"
+}
+
+case "${1:-}" in
+  doctor) cmd_doctor ;;
+  start)  cmd_start ;;
+  status) cmd_status ;;
+  sql)    cmd_sql ;;
+  logs)   cmd_logs ;;
+  verify) cmd_verify ;;
+  reset)  cmd_reset ;;
+  clean)  cmd_clean ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+esac

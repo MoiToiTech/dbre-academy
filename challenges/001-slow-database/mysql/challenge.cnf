@@ -1,0 +1,13 @@
+# A small server, sized for a laptop. Nothing here is the cause of the incident.
+[mysqld]
+innodb_buffer_pool_size        = 256M
+innodb_redo_log_capacity       = 256M
+innodb_lock_wait_timeout       = 10
+max_connections                = 100
+skip_name_resolve              = ON
+local_infile                   = OFF
+performance_schema             = ON
+slow_query_log                 = ON
+slow_query_log_file            = /var/lib/mysql/slow.log
+long_query_time                = 0.01
+log_error_verbosity            = 2
