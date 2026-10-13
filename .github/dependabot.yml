@@ -7,6 +7,10 @@ updates:
     directory: /labs
     schedule: { interval: monthly }
     ignore:
+      # Built locally by ./lab from labs/mysql/Dockerfile; no registry has it,
+      # so looking it up fails the whole update run. Its base image is tracked
+      # by the docker entry below.
+      - dependency-name: "dbre-academy/mysql"
       # The course is written and tested against MySQL 8.4 LTS. Take 8.4.x
       # patch releases; a new major or LTS series is a course revision, not a
       # dependency bump.
@@ -19,5 +23,12 @@ updates:
       # The course is written and tested against MySQL 8.4 LTS. Take 8.4.x
       # patch releases; a new major or LTS series is a course revision, not a
       # dependency bump.
+      - dependency-name: "mysql"
+        versions: [">= 8.5"]
+  - package-ecosystem: docker-compose
+    directory: /challenges/001-slow-database
+    schedule: { interval: monthly }
+    ignore:
+      # The challenge is built and tested on MySQL 8.4 LTS; take 8.4.x patches.
       - dependency-name: "mysql"
         versions: [">= 8.5"]

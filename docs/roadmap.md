@@ -1,14 +1,15 @@
 # Roadmap
 
 What exists, what comes next, and what is deliberately left out. Status is
-stated as it is: only the first course is published. Everything below it is
-a plan, not material.
+stated as it is: only the first course and the first incident challenge are
+published. Everything below them is a plan, not material.
 
 ## Published
 
-| Course | Status | Scope |
+| Material | Status | Scope |
 |---|---|---|
 | [MySQL Production DBA Fundamentals](../courses/mysql-production-dba/README.md) | v1, free | Ten modules, about 13–15 hours, MySQL 8.4 LTS, Docker labs with automated checks |
+| [Challenge #001: The database is slow. Nobody changed anything.](../challenges/001-slow-database/README.md) | v1, free | One production incident, 20–40 minutes, intermediate, MySQL 8.4, automated `verify` |
 
 ## Planned
 
