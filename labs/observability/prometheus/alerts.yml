@@ -1,20 +1,39 @@
-# Starting-point alert rules for the lab. Thresholds are tuned to make the
-# lab's fault scenarios visible within a minute, not for production.
+# Starting-point alert rules for the lab. Thresholds and `for:` durations are
+# tuned to make the lab's fault scenarios visible within a minute, not for
+# production — where `for:` is usually minutes, not seconds.
 #
 # Metric names: mysqld_exporter names replication metrics after the columns
 # of SHOW REPLICA STATUS. On MySQL 8.4 that gives ..._seconds_behind_source
 # and ..._replica_io_running, not the ..._master / slave_io names that many
 # published rule sets still use. A rule on a name that does not exist never
 # fires — check the names against /metrics after every upgrade.
+#
+# runbook_url points at the runbook section of the module 8 lesson, relative
+# to the repository root. In production, use an absolute link to your wiki.
+#
+# Severities: page = wake someone up (users are affected or soon will be);
+# warn = look at it in working hours.
 groups:
   - name: mysql
     rules:
+      - alert: MySQLExporterDown
+        expr: up{job="mysql"} == 0
+        for: 30s
+        labels: { severity: page }
+        annotations:
+          summary: "Prometheus cannot scrape mysqld_exporter for {{ $labels.instance }}"
+          description: >-
+            Without the exporter there is no data, so every other MySQL alert for
+            this instance is silent. Treat as 'MySQL state unknown'.
+          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-mysql-down"
+
       - alert: MySQLDown
         expr: mysql_up == 0
         for: 15s
         labels: { severity: page }
         annotations:
           summary: "mysqld_exporter cannot reach MySQL on {{ $labels.instance }}"
+          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-mysql-down"
 
       - alert: MySQLReplicationStopped
         expr: mysql_slave_status_replica_io_running == 0 or mysql_slave_status_replica_sql_running == 0
@@ -22,6 +41,10 @@ groups:
         labels: { severity: page }
         annotations:
           summary: "A replication thread is stopped on {{ $labels.instance }}"
+          description: >-
+            Seconds_Behind_Source is NULL (no sample) while the applier is
+            stopped, so the lag alert cannot see this. This rule does.
+          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-replication"
 
       - alert: MySQLReplicationLag
         expr: mysql_slave_status_seconds_behind_source > 30
@@ -29,6 +52,7 @@ groups:
         labels: { severity: warn }
         annotations:
           summary: "{{ $labels.instance }} is {{ $value }}s behind its source"
+          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-replication"
 
       - alert: MySQLConnectionsNearLimit
         expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections > 0.8
@@ -36,6 +60,7 @@ groups:
         labels: { severity: warn }
         annotations:
           summary: "{{ $labels.instance }} uses over 80% of max_connections"
+          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-connections"
 
       - alert: MySQLRowLockWaits
         expr: rate(mysql_global_status_innodb_row_lock_waits[1m]) > 1
@@ -43,3 +68,4 @@ groups:
         labels: { severity: warn }
         annotations:
           summary: "Sustained InnoDB row-lock waits on {{ $labels.instance }}"
+          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-threads-running"

@@ -1,0 +1,93 @@
+# Fast checks on every push and pull request: no lab needed.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: Documentation (lint + links)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Markdown lint
+        uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0
+        with:
+          globs: "**/*.md"
+      - name: Link check
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --config lychee.toml --no-progress "**/*.md"
+          fail: true
+      - name: MySQL manual links are real pages
+        # dev.mysql.com answers missing pages with HTTP 200 + "Page Not Found".
+        run: python3 labs/tests/check-manual-links.py
+
+  scripts:
+    name: Shell, Python and SQL checks
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck -S warning -x -P labs/scripts labs/lab labs/scripts/*.sh labs/tests/*.sh labs/scenarios/*/*.sh
+      - name: Python syntax
+        run: python3 -m py_compile labs/tests/doctest.py
+      - name: SQL parses on MySQL 8.4
+        # Load schema + data into a throwaway server: proves the dataset
+        # scripts parse and run, independently of the full lab.
+        run: |
+          docker run -d --name sqlcheck -e MYSQL_ROOT_PASSWORD=x \
+            -v "$PWD/labs/datasets:/datasets:ro" mysql:8.4.11
+          for i in $(seq 60); do
+            docker exec sqlcheck mysqladmin -h127.0.0.1 -uroot -px ping --silent 2>/dev/null && break
+            sleep 2
+          done
+          docker exec sqlcheck sh -c 'mysql -uroot -px < /datasets/shop/01-schema.sql'
+          docker exec sqlcheck sh -c 'mysql -uroot -px < /datasets/shop/02-data.sql' > /dev/null
+          docker exec sqlcheck sh -c 'mysql -uroot -px -t < /datasets/shop/fingerprint.sql'
+      - name: Static layout checks
+        run: labs/tests/static-checks.sh
+
+  config:
+    name: Compose and observability config
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: docker compose config
+        run: |
+          docker compose -f labs/docker-compose.yml config -q
+          docker compose -f labs/docker-compose.yml --profile observability config -q
+      - name: promtool
+        run: |
+          # Same mount point as in docker-compose.yml, so rule_files paths resolve.
+          docker run --rm --entrypoint promtool \
+            -v "$PWD/labs/observability/prometheus:/etc/prometheus/dbre:ro" \
+            prom/prometheus:v3.5.0 check config /etc/prometheus/dbre/prometheus.yml
+      - name: Grafana dashboards are valid JSON
+        run: for f in labs/observability/grafana/dashboards/*.json; do python3 -m json.tool "$f" > /dev/null && echo "ok $f"; done
+
+  workflows:
+    name: Workflow security (zizmor)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: pipx run zizmor --offline .github/workflows

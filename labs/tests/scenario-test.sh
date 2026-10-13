@@ -77,6 +77,7 @@ test_scenario() {
 }
 
 if [ "${1:-}" = "--all" ]; then
+  # shellcheck disable=SC2046  # scenario names never contain spaces
   set -- $(cd "$LAB_DIR/scenarios" && for d in */; do [ -f "$d/setup.sh" ] && printf '%s ' "${d%/}"; done)
 fi
 [ $# -gt 0 ] || { echo "usage: $0 <scenario>... | --all"; exit 2; }

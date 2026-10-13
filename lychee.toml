@@ -1,0 +1,12 @@
+# Link checker configuration (CI: .github/workflows/checks.yml)
+max_retries = 3
+retry_wait_time = 5
+timeout = 30
+accept = ["200..=299", "429"]
+exclude = [
+  "^http://127\\.0\\.0\\.1",
+  "^http://localhost",
+  "^https://github\\.com/MoiToiTech/dbre-academy/(issues|pulls|compare|fork)",
+  "^https://www\\.linkedin\\.com",
+]
+exclude_path = ["labs/tests"]

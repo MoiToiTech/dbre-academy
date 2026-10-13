@@ -1,0 +1,48 @@
+# The real thing: start the lab from scratch, run every scenario and every
+# executable lesson block, tear down. On amd64 and arm64.
+name: lab
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"   # weekly, to catch upstream image and repo drift
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lab-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-run:
+    name: Lab integration (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Full run (up, scenarios, lessons, teardown)
+        run: labs/tests/full-run.sh 2>&1 | tee full-run.log
+        env:
+          NO_COLOR: "1"
+      - name: Container logs on failure
+        if: failure()
+        run: |
+          docker compose -p dbre -f labs/docker-compose.yml --profile observability logs --no-color > compose.log 2>&1 || true
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: lab-logs-${{ matrix.runner }}
+          path: |
+            full-run.log
+            compose.log
+          if-no-files-found: ignore

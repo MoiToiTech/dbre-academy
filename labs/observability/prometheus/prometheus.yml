@@ -3,7 +3,10 @@ global:
   evaluation_interval: 5s
 
 rule_files:
+  # The course's rules, then your own: module 8 asks you to write alert rules
+  # into rules.d/. A glob that matches no file is not an error.
   - /etc/prometheus/dbre/alerts.yml
+  - /etc/prometheus/dbre/rules.d/*.yml
 
 scrape_configs:
   - job_name: mysql

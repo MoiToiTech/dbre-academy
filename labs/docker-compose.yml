@@ -8,10 +8,14 @@
 name: ${DBRE_PROJECT:-dbre}
 
 x-mysql: &mysql
-  # mysql:8.4.11 plus mysqlbinlog, mysqlcheck, mysqldumpslow and procps.
-  # Built locally on the first ./lab up (about a minute); see mysql/Dockerfile.
-  image: dbre-academy/mysql:8.4.11
-  build: ./mysql
+  # The official MySQL 8.4 image plus mysqlbinlog, mysqlcheck, mysqldumpslow
+  # and procps. Built locally by ./lab on first use and whenever
+  # mysql/Dockerfile changes (about a minute); see mysql/Dockerfile.
+  image: dbre-academy/mysql:8.4
+  build:
+    context: ./mysql
+    labels:
+      academy.dbre.dockerfile-sha: ${DBRE_DOCKERFILE_SHA:-unset}
   restart: "no"
   environment:
     MYSQL_ROOT_PASSWORD: ${DBRE_ROOT_PASSWORD:-dbre-lab-root}

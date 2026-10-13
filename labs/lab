@@ -79,10 +79,7 @@ cmd_up() {
     "") ;;
     *) die "unknown option: $1" ;;
   esac
-  if ! docker image inspect dbre-academy/mysql:8.4.11 >/dev/null 2>&1; then
-    info "Building the lab's MySQL image (first run only, about a minute)"
-    dc build --quiet primary
-  fi
+  ensure_image
   info "Starting containers (project: $DBRE_PROJECT)"
   # shellcheck disable=SC2086
   dc $profile up -d --quiet-pull

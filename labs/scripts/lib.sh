@@ -29,6 +29,20 @@ dc_all() {
   docker compose -p "$DBRE_PROJECT" -f "$LAB_DIR/docker-compose.yml" --profile observability "$@"
 }
 
+# The lab's MySQL image is built locally from mysql/Dockerfile. Rebuild it
+# when the Dockerfile changed since the last build (tracked with a label).
+DBRE_DOCKERFILE_SHA="$(cksum < "$LAB_DIR/mysql/Dockerfile" | awk '{print $1}')"
+export DBRE_DOCKERFILE_SHA
+ensure_image() {
+  local built
+  built="$(docker image inspect -f '{{index .Config.Labels "academy.dbre.dockerfile-sha"}}' \
+           dbre-academy/mysql:8.4 2>/dev/null || true)"
+  if [ "$built" != "$DBRE_DOCKERFILE_SHA" ]; then
+    info "Building the lab's MySQL image (first run or Dockerfile changed; about a minute)"
+    dc build --quiet primary
+  fi
+}
+
 # sql <primary|replica> [mysql client args...]  — reads SQL from stdin if no -e.
 sql() {
   local svc="$1"; shift
