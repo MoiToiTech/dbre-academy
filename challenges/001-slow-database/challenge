@@ -229,11 +229,33 @@ cmd_verify() {
   say ""
   say "${G}${B}Incident resolved.${N} Time since the incident went live: ${mins} min."
   say ""
-  say "Share it without spoilers:"
-  say "  I solved MoiToi Engineering Challenge #001, \"The database is slow. Nobody changed anything.\","
-  say "  in ${mins} minutes. Can you? https://github.com/MoiToiTech/dbre-academy #MoiToiChallenge"
-  say ""
+  local reference
+  reference=$(q -e "SELECT COUNT(*) FROM challenge.run WHERE k = 'reference_fix'")
+  if [ "$reference" != 0 ]; then
+    say "The reference fix (instructor/solve.sh) was used, so no share link this time."
+    say "./challenge reset and solve it yourself to get one."
+    say ""
+  else
+    local took="in ${mins} minutes"
+    [ "${mins:-0}" -ge 1 ] 2>/dev/null || took="in under a minute"
+    say "Share it on LinkedIn (self-reported, no spoilers; the page shows your time, never the answer):"
+    say "  $(share_url "$mins")"
+    say ""
+    say "Or post it in your own words, and keep the cause out of it so others can still play:"
+    say "  I solved MoiToi Engineering Challenge #001, \"The database is slow. Nobody changed anything.\","
+    say "  ${took}. Can you? https://moitoi.tech/academy #MoiToiChallenge"
+    say ""
+  fi
   say "Now read instructor/README.md for the full explanation and how to stop it happening again."
+}
+
+# A LinkedIn share link for https://moitoi.tech/academy/solved/challenge-001,
+# carrying the minutes this tool measured. Only prints a URL; sends nothing.
+share_url() { # share_url <minutes>
+  local page="https://moitoi.tech/academy/solved/challenge-001"
+  if [ "${1:-0}" -ge 1 ] 2>/dev/null; then page="$page?m=$1"; fi
+  printf 'https://www.linkedin.com/sharing/share-offsite/?url=%s' \
+    "$(printf '%s' "$page" | sed -e 's/%/%25/g' -e 's/:/%3A/g' -e 's#/#%2F#g' -e 's/?/%3F/g' -e 's/=/%3D/g')"
 }
 
 cmd_reset() {

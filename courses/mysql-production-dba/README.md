@@ -79,6 +79,11 @@ Copy this list into your own notes, or fork the repository and tick it in
 place. A box is ticked when `./lab check` passes, not when you have read the
 page.
 
+When a check passes, the lab also prints a LinkedIn share link for that
+exercise. The page it opens names the exercise, never the fix, and says the
+result is self-reported. It is not offered after `./lab scenario solve`: the
+reference fix is for learning, not for sharing.
+
 - [ ] 1 — `./lab check 01-architecture-tour`
 - [ ] 2 — `./lab check 02-config-drift` and `./lab check 02-least-privilege`
 - [ ] 3 — `./lab check 03-lock-contention` and `./lab check 03-metadata-lock`

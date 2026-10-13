@@ -171,12 +171,22 @@ cmd_scenario() {
     setup)
       dir="$(scenario_dir "${2:-}")"
       is_running primary || die "the lab is not running — start it with ./lab up"
+      # A fresh attempt: forget that the reference fix was used last time.
+      rm -f "$REFERENCE_MARK_DIR/$(basename "$dir")"
       bash "$dir/setup.sh" ;;
-    check|reset|solve)
+    check)
       # No running-primary guard: some scenarios (e.g. 09-wont-start) stop
       # the primary on purpose, and their check/reset must still work.
       dir="$(scenario_dir "${2:-}")"
-      bash "$dir/$action.sh" ;;
+      bash "$dir/check.sh" || return  # the check's own exit code
+      offer_share "$(basename "$dir")" ;;
+    solve)
+      dir="$(scenario_dir "${2:-}")"
+      mkdir -p "$REFERENCE_MARK_DIR" && touch "$REFERENCE_MARK_DIR/$(basename "$dir")"
+      bash "$dir/solve.sh" ;;
+    reset)
+      dir="$(scenario_dir "${2:-}")"
+      bash "$dir/reset.sh" ;;
     *) die "unknown scenario action: $action (list|setup|check|reset|solve)" ;;
   esac
 }

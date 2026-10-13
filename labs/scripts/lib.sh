@@ -150,3 +150,25 @@ check_result() {
     printf '%s%d check(s) failed.%s\n' "$C_RED" "$CHECK_FAILURES" "$C_OFF"; return 1
   fi
 }
+
+# --- Sharing a solved exercise ---------------------------------------------
+# After a check passes, offer a link the learner can post on LinkedIn. It opens
+# https://moitoi.tech/academy/solved/<scenario>: what was solved (never the
+# answer), self-reported. Nothing is sent anywhere; this only prints a URL.
+# Not offered after `./lab scenario solve`, which applied the reference fix.
+REFERENCE_MARK_DIR="$LAB_DIR/.state/reference-solved"
+
+share_url() { # share_url <slug> [minutes]
+  local page="https://moitoi.tech/academy/solved/$1"
+  if [ -n "${2:-}" ] && [ "$2" -ge 1 ] 2>/dev/null; then page="$page?m=$2"; fi
+  printf 'https://www.linkedin.com/sharing/share-offsite/?url=%s' \
+    "$(printf '%s' "$page" | sed -e 's/%/%25/g' -e 's/:/%3A/g' -e 's#/#%2F#g' -e 's/?/%3F/g' -e 's/=/%3D/g' -e 's/&/%26/g')"
+}
+
+offer_share() { # offer_share <scenario>
+  [ -n "${CI:-}" ] && return 0
+  [ -f "$REFERENCE_MARK_DIR/$1" ] && return 0
+  printf '\n%sSolved it yourself? Share it on LinkedIn%s (self-reported, no spoilers):\n  %s\n' \
+    "$C_GREEN" "$C_OFF" "$(share_url "$1")"
+}
+

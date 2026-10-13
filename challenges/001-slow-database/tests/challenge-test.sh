@@ -62,6 +62,17 @@ grep -q '✗ The condition behind' <<<"$out" && pass "OPTIMIZE alone does not re
 step "reference fix"
 instructor/solve.sh || fail "solve.sh"
 expect_resolved "after fix"
+out=$(./challenge verify 2>&1 | tr '\r' '\n')
+grep -q 'reference fix (instructor/solve.sh) was used, so no share link' <<<"$out" && ! grep -q 'linkedin.com' <<<"$out" \
+  && pass "no share link after the reference fix" || fail "a reference fix must not get a share link"
+
+step "solved by hand: share link offered"
+# The learner's way: find the idle session and end it, without solve.sh.
+q -e "SELECT CONCAT('KILL ', t.trx_mysql_thread_id) FROM information_schema.innodb_trx t JOIN information_schema.processlist p ON p.id = t.trx_mysql_thread_id WHERE p.command = 'Sleep' AND t.trx_rows_modified = 0" > /dev/null
+q -e "DELETE FROM challenge.run WHERE k = 'reference_fix'"
+out=$(./challenge verify 2>&1 | tr '\r' '\n')
+grep -q 'linkedin.com/sharing/share-offsite/?url=https%3A%2F%2Fmoitoi.tech%2Facademy%2Fsolved%2Fchallenge-001' <<<"$out" \
+  && pass "share link offered when solved by hand" || fail "share link missing after a hand fix"
 ./challenge status
 
 step "reset returns to the incident"
