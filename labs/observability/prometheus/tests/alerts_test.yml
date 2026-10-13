@@ -1,0 +1,54 @@
+# Unit tests for alerts.yml. Run inside the lab's Prometheus container:
+#   docker exec dbre-prometheus-1 promtool test rules /etc/prometheus/dbre/tests/alerts_test.yml
+# Series notation: 'a+bxN' starts at a and adds b, N times; '_' is a missing
+# sample; 'stale' ends the series.
+rule_files:
+  - ../alerts.yml
+
+evaluation_interval: 5s
+
+tests:
+  # The applier stops at t=10s. Its thread flag drops to 0 and
+  # Seconds_Behind_Source becomes NULL, which the exporter does not export:
+  # the lag series ends. The 'stopped' rule must page; the lag rule cannot.
+  - interval: 5s
+    input_series:
+      - series: 'mysql_slave_status_replica_io_running{instance="replica"}'
+        values: '1x12'
+      - series: 'mysql_slave_status_replica_sql_running{instance="replica"}'
+        values: '1 1 0x10'
+      - series: 'mysql_slave_status_seconds_behind_source{instance="replica"}'
+        values: '0 0 stale'
+    alert_rule_test:
+      - eval_time: 20s      # 10s into the fault: pending, not yet firing
+        alertname: MySQLReplicationStopped
+        exp_alerts: []
+      - eval_time: 30s
+        alertname: MySQLReplicationStopped
+        exp_alerts:
+          - exp_labels: { severity: page, instance: replica }
+            exp_annotations:
+              summary: "A replication thread is stopped on replica"
+              description: >-
+                Seconds_Behind_Source is NULL (no sample) while the applier is
+                stopped, so the lag alert cannot see this. This rule does.
+              runbook_url: "https://github.com/MoiToiTech/dbre-academy/blob/main/courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-replication"
+      - eval_time: 60s
+        alertname: MySQLReplicationLag
+        exp_alerts: []
+
+  # Connections at 170 of 200 for a minute: warn after the 30s hold.
+  - interval: 5s
+    input_series:
+      - series: 'mysql_global_status_threads_connected{instance="primary"}'
+        values: '20 170x12'
+      - series: 'mysql_global_variables_max_connections{instance="primary"}'
+        values: '200x13'
+    alert_rule_test:
+      - eval_time: 60s
+        alertname: MySQLConnectionsNearLimit
+        exp_alerts:
+          - exp_labels: { severity: warn, instance: primary }
+            exp_annotations:
+              summary: "primary uses over 80% of max_connections"
+              runbook_url: "https://github.com/MoiToiTech/dbre-academy/blob/main/courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-connections"
