@@ -39,6 +39,18 @@ script, so you know when you have actually solved it.
 | 9 | [Incident response and troubleshooting](courses/mysql-production-dba/09-incident-response/README.md) | Too many connections; a server that will not start |
 | 10 | [Final challenge](courses/mysql-production-dba/10-final-challenge/README.md) | Three simultaneous faults and a post-incident review |
 
+## Production Incident Challenges
+
+One production incident each, solvable in under an hour on your laptop
+without taking the course. The briefing is spoiler-free; the explanation
+lives in a separate instructor guide. All challenges:
+[challenges/README.md](challenges/README.md).
+
+**[Challenge #001: The database is slow. Nobody changed anything.](challenges/001-slow-database/README.md)**
+Your production database is slow. Can you figure out why?
+
+`MySQL 8.4` · `intermediate` · `20–40 minutes` · `free`
+
 ## Who it is for
 
 Linux system administrators, junior DBAs, backend developers, DevOps
@@ -105,8 +117,8 @@ and [research.md](docs/research.md) the benchmark behind it.
 
 | What | Licence |
 |---|---|
-| Course content: `courses/`, `docs/` | [Creative Commons Attribution 4.0](LICENSE-CONTENT) |
-| Code: `labs/`, `.github/`, scripts | [Apache License 2.0](LICENSE) |
+| Course and challenge text: `courses/`, `challenges/`, `docs/` | [Creative Commons Attribution 4.0](LICENSE-CONTENT) |
+| Code: `labs/`, `.github/`, scripts (including the challenge tooling in `challenges/`) | [Apache License 2.0](LICENSE) |
 
 The MoiToi.TECH name and logo are not covered by either licence.
 
