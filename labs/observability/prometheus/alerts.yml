@@ -8,8 +8,8 @@
 # published rule sets still use. A rule on a name that does not exist never
 # fires — check the names against /metrics after every upgrade.
 #
-# runbook_url points at the runbook section of the module 8 lesson, relative
-# to the repository root. In production, use an absolute link to your wiki.
+# runbook_url points at the runbook section of the module 8 lesson. In
+# production, point it at your own runbook wiki.
 #
 # Severities: page = wake someone up (users are affected or soon will be);
 # warn = look at it in working hours.
@@ -25,7 +25,7 @@ groups:
           description: >-
             Without the exporter there is no data, so every other MySQL alert for
             this instance is silent. Treat as 'MySQL state unknown'.
-          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-mysql-down"
+          runbook_url: "https://github.com/MoiToiTech/dbre-academy/blob/main/courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-mysql-down"
 
       - alert: MySQLDown
         expr: mysql_up == 0
@@ -33,7 +33,7 @@ groups:
         labels: { severity: page }
         annotations:
           summary: "mysqld_exporter cannot reach MySQL on {{ $labels.instance }}"
-          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-mysql-down"
+          runbook_url: "https://github.com/MoiToiTech/dbre-academy/blob/main/courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-mysql-down"
 
       - alert: MySQLReplicationStopped
         expr: mysql_slave_status_replica_io_running == 0 or mysql_slave_status_replica_sql_running == 0
@@ -44,7 +44,7 @@ groups:
           description: >-
             Seconds_Behind_Source is NULL (no sample) while the applier is
             stopped, so the lag alert cannot see this. This rule does.
-          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-replication"
+          runbook_url: "https://github.com/MoiToiTech/dbre-academy/blob/main/courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-replication"
 
       - alert: MySQLReplicationLag
         expr: mysql_slave_status_seconds_behind_source > 30
@@ -52,7 +52,7 @@ groups:
         labels: { severity: warn }
         annotations:
           summary: "{{ $labels.instance }} is {{ $value }}s behind its source"
-          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-replication"
+          runbook_url: "https://github.com/MoiToiTech/dbre-academy/blob/main/courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-replication"
 
       - alert: MySQLConnectionsNearLimit
         expr: mysql_global_status_threads_connected / mysql_global_variables_max_connections > 0.8
@@ -60,7 +60,7 @@ groups:
         labels: { severity: warn }
         annotations:
           summary: "{{ $labels.instance }} uses over 80% of max_connections"
-          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-connections"
+          runbook_url: "https://github.com/MoiToiTech/dbre-academy/blob/main/courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-connections"
 
       - alert: MySQLRowLockWaits
         expr: rate(mysql_global_status_innodb_row_lock_waits[1m]) > 1
@@ -68,4 +68,4 @@ groups:
         labels: { severity: warn }
         annotations:
           summary: "Sustained InnoDB row-lock waits on {{ $labels.instance }}"
-          runbook_url: "courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-threads-running"
+          runbook_url: "https://github.com/MoiToiTech/dbre-academy/blob/main/courses/mysql-production-dba/08-monitoring-observability/README.md#runbook-threads-running"

@@ -6,6 +6,18 @@ updates:
   - package-ecosystem: docker-compose
     directory: /labs
     schedule: { interval: monthly }
+    ignore:
+      # The course is written and tested against MySQL 8.4 LTS. Take 8.4.x
+      # patch releases; a new major or LTS series is a course revision, not a
+      # dependency bump.
+      - dependency-name: "mysql"
+        versions: [">= 8.5"]
   - package-ecosystem: docker
     directory: /labs/mysql
     schedule: { interval: monthly }
+    ignore:
+      # The course is written and tested against MySQL 8.4 LTS. Take 8.4.x
+      # patch releases; a new major or LTS series is a course revision, not a
+      # dependency bump.
+      - dependency-name: "mysql"
+        versions: [">= 8.5"]

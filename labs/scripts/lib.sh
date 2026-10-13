@@ -99,7 +99,12 @@ replication_configured() {
 configure_replication() {
   if ! replication_configured; then
     info "Configuring GTID replication primary -> replica"
+    # The image's entrypoint loads the time zone tables with binary logging
+    # on, so a fresh replica starts with a few transactions under its own
+    # server UUID: errant transactions that would follow it into any
+    # failover. Clear them before it becomes a replica (module 7 explains).
     sql replica <<SQL
+RESET BINARY LOGS AND GTIDS;
 CHANGE REPLICATION SOURCE TO
   SOURCE_HOST = 'primary',
   SOURCE_PORT = 3306,

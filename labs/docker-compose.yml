@@ -17,6 +17,10 @@ x-mysql: &mysql
     labels:
       academy.dbre.dockerfile-sha: ${DBRE_DOCKERFILE_SHA:-unset}
   restart: "no"
+  # mysqld needs more than Compose's default 10 s to close connections and
+  # flush; after that Docker sends SIGKILL and the next start is a crash
+  # recovery. Give a clean shutdown time to finish.
+  stop_grace_period: 120s
   environment:
     MYSQL_ROOT_PASSWORD: ${DBRE_ROOT_PASSWORD:-dbre-lab-root}
     MYSQL_ROOT_HOST: "%"

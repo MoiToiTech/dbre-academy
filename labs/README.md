@@ -12,7 +12,7 @@ Grafana. Everything runs locally; nothing needs an account or a paid service.
 | Memory for Docker | 2 GiB; 4 GiB with `--observability` | Each MySQL server uses a 256 MiB buffer pool |
 | Disk | ~3 GiB | Images ~2 GiB, data ~0.5 GiB |
 | CPU | amd64 or arm64 (Apple silicon) | Both are tested in CI |
-| Shell | bash 3.2+ | macOS default bash works; on Windows use WSL 2 |
+| Shell | bash 3.2+ | macOS default bash works; on Windows use WSL 2 (not tested in CI) |
 | Network | First run only | Pulls images and builds the lab image (~1 min) |
 
 Check your machine:

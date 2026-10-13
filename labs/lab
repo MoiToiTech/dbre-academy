@@ -26,6 +26,8 @@ Working in the lab
                             Open a mysql shell as root (default: primary).
                             Example: ./lab sql replica -e "SHOW REPLICA STATUS\G"
   shell [primary|replica]   Open a bash shell inside a MySQL container
+  exec <service> <cmd...>   Run one command in a container, non-interactively
+                            Example: ./lab exec primary mysqldumpslow -s t /var/lib/mysql/slow.log
   logs [service]            Follow container logs (default: primary)
   fingerprint [primary|replica]
                             Row counts and checksums of the shop dataset
@@ -35,6 +37,7 @@ Scenarios (exercises)
   scenario setup <name>     Inject the scenario's fault
   scenario check <name>     Validate your fix (exit code 0 = solved)
   scenario reset <name>     Undo the scenario and restore the baseline
+  scenario solve <name>     Apply the reference fix (try it yourself first!)
   check <name>              Shortcut for: scenario check <name>
 
 Ports bind to 127.0.0.1 only: primary 13306, replica 13307,
@@ -165,11 +168,16 @@ cmd_scenario() {
         [ -f "$dir/setup.sh" ] || continue
         printf '%-28s %s\n' "$(basename "$dir")" "$(sed -n 's/^# summary: //p' "$dir/setup.sh")"
       done ;;
-    setup|check|reset)
+    setup)
       dir="$(scenario_dir "${2:-}")"
       is_running primary || die "the lab is not running — start it with ./lab up"
+      bash "$dir/setup.sh" ;;
+    check|reset|solve)
+      # No running-primary guard: some scenarios (e.g. 09-wont-start) stop
+      # the primary on purpose, and their check/reset must still work.
+      dir="$(scenario_dir "${2:-}")"
       bash "$dir/$action.sh" ;;
-    *) die "unknown scenario action: $action (list|setup|check|reset)" ;;
+    *) die "unknown scenario action: $action (list|setup|check|reset|solve)" ;;
   esac
 }
 
@@ -185,6 +193,8 @@ main() {
     reset)       cmd_reset "$@" ;;
     sql|mysql)   cmd_sql "$@" ;;
     shell)       cmd_shell "$@" ;;
+    exec)        [ $# -ge 2 ] || die "usage: ./lab exec <service> <command...>"
+                 dc_all exec -T "$@" ;;
     logs)        dc_all logs -f --tail 100 "${1:-primary}" ;;
     fingerprint) cmd_fingerprint "$@" ;;
     scenario)    cmd_scenario "$@" ;;
