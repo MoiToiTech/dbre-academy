@@ -93,6 +93,8 @@ troubleshooting: [labs/README.md](labs/README.md).
 There are no accounts and nothing is tracked. Your progress is the list of
 `./lab check` commands that pass on your machine; the course README has a
 [checklist](courses/mysql-production-dba/README.md#track-your-progress).
+A passing check prints a link to share it on LinkedIn: self-reported, no
+spoilers, and nothing is sent anywhere unless you post it.
 
 The repository verifies itself the same way. On every change, CI starts the
 lab from scratch on amd64 and arm64, runs every exercise's fault, check,

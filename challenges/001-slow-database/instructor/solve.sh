@@ -23,3 +23,5 @@ id=$(q --skip-column-names -e "
 
 echo "Ending connection $id (idle, modified nothing: rollback is instant)."
 q -e "KILL $id"
+# Recorded so ./challenge verify does not offer a share link for a reference fix.
+q -e "INSERT INTO challenge.run VALUES ('reference_fix', '1') ON DUPLICATE KEY UPDATE v = '1'"

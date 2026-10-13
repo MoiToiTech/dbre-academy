@@ -147,10 +147,12 @@ that the next minute looks better.
 
 ## Done?
 
-`./challenge verify` prints your time and a line you can share. Please keep
-the cause out of public posts so others can still enjoy it — say how long it
-took, what misled you, or what you'd monitor now, and put anything more behind
-a spoiler.
+`./challenge verify` prints your time and a LinkedIn share link. The page it
+opens says you solved Challenge #001 and how long it took, never the answer;
+it is self-reported, because the check ran on your machine and nothing is
+tracked. If you write your own post, keep the cause out of it so others can
+still enjoy it — say how long it took, what misled you, or what you'd monitor
+now, and put anything more behind a spoiler.
 
 Then read the full explanation, the wrong turns and how to stop it happening
 again: **[instructor/README.md](instructor/README.md)** (spoilers).
