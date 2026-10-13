@@ -226,9 +226,38 @@ ORDER BY h.EVENT_ID;
 +----------------+-----------------------------------------------------------------------------------------------------+
 ```
 
-The Tallinn stock correction from `#warehouse`: 50 rows changed, 148 locked
-(the scan over the primary-key range also locked rows of the other warehouses
-that it read but did not change). In real life you would ask the warehouse colleague whether to commit
+The Tallinn stock correction from `#warehouse`: 50 rows changed, 148 locked.
+The extra 98 belong to the other warehouses. Look at the locks themselves:
+
+```sql test
+SELECT SUBSTRING_INDEX(l.LOCK_DATA, ', ', -1) AS warehouse,
+       l.LOCK_MODE, COUNT(*) AS records
+FROM performance_schema.data_locks l
+JOIN performance_schema.threads th USING (THREAD_ID)
+WHERE th.PROCESSLIST_USER = 'backoffice' AND l.LOCK_TYPE = 'RECORD'
+GROUP BY warehouse, l.LOCK_MODE
+ORDER BY warehouse, l.LOCK_MODE;
+```
+
+```text
++-----------+---------------+---------+
+| warehouse | LOCK_MODE     | records |
++-----------+---------------+---------+
+| 'HEL'     | X             |      49 |
+| 'RIX'     | X             |      49 |
+| 'TLL'     | X             |      49 |
+| 'TLL'     | X,REC_NOT_GAP |       1 |
++-----------+---------------+---------+
+```
+
+The primary key is `(product_id, warehouse)`, and every product is stocked in
+three warehouses. `EXPLAIN` on the `UPDATE` shows a `range` scan on
+`PRIMARY` with `key_len` 16, both key parts, so the scan runs from
+`(1, 'TLL')` to `(50, 'TLL')` in key order. It locks every record it reads,
+changed or not: `(1, 'TLL')` itself (a record-only lock, `REC_NOT_GAP`),
+then all three warehouses of products 2 to 50 (next-key locks, `X`). That is
+1 + 49 × 3 = 148; the rows of Helsinki and Riga for product 1 sit before the
+start of the range and are not locked. In real life you would ask the warehouse colleague whether to commit
 or abandon it. Here they are in a meeting, checkout is down, and an
 uncommitted correction can be redone — so kill the session; InnoDB rolls the
 50 rows back. Record that the stock correction must be re-applied.

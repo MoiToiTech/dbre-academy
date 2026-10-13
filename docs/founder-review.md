@@ -99,9 +99,13 @@ or simplifies deliberately.
       (observed in 8.4.11); `admin_address` cannot be persisted (error 1238,
       observed). Quiz Q12's Kubernetes `terminationGracePeriodSeconds`
       analogy is general knowledge, not checked against Kubernetes docs.
-- [ ] **Module 10**: the walkthrough's explanation of why 148 rows are locked
-      (the scan locks rows it reads in other warehouses) is plausible but the
-      exact lock set was not traced.
+- [ ] **Module 10**: the 148 locked rows are now traced (observed in
+      `performance_schema.data_locks` with the scenario running, 8.4.11):
+      `EXPLAIN` shows a `range` scan on `PRIMARY` (`key_len` 16, both key
+      parts) from `(1,'TLL')` to `(50,'TLL')`; it holds one record-only lock
+      on `(1,'TLL')` and next-key locks on all three warehouses of products
+      2–50, 1 + 49 × 3 = 148, nothing beyond the range. The walkthrough
+      shows the breakdown query (doctested).
 - [ ] **Deferred topics** (Group Replication, InnoDB Cluster, Orchestrator,
       ProxySQL, XtraBackup internals) are described from documentation only,
       not run in the lab.
