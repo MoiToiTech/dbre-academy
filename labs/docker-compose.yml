@@ -64,7 +64,7 @@ services:
   # --- Observability (optional): ./lab up --observability -----------------
 
   exporter-primary:
-    image: prom/mysqld-exporter:v0.20.0
+    image: prom/mysqld-exporter:v0.21.0
     profiles: ["observability"]
     command: &exporter-args
       - --config.my-cnf=/etc/exporter/my.cnf
@@ -79,7 +79,7 @@ services:
       primary: { condition: service_healthy }
 
   exporter-replica:
-    image: prom/mysqld-exporter:v0.20.0
+    image: prom/mysqld-exporter:v0.21.0
     profiles: ["observability"]
     command: *exporter-args
     volumes:
